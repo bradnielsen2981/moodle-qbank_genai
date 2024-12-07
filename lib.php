@@ -238,3 +238,68 @@ function qbank_genai_create_question(string $name, stdClass $question, stdClass 
     // Commit the transaction.
     $transaction->allow_commit();
 }
+
+/**
+ * Programmatically creates a Description question.
+ *
+ * Based on code from /question/type/description/
+ *
+ * @param string $name The question name
+ * @param string $text The question text
+ * @param stdClass $category Information about the category and context
+ */
+function qbank_genai_add_description(string $name, string $text, stdClass $category) {
+    global $USER, $DB;
+
+    $transaction = $DB->start_delegated_transaction();
+
+    $qdata = new stdClass();
+    $qdata->category = $category->id;
+    $qdata->qtype = 'description';
+    $qdata->name = $name;
+    $qdata->questiontext = $text;
+    $qdata->questiontextformat = FORMAT_HTML;
+    $qdata->parent = 0;
+    $qdata->defaultmark = 0;
+    $qdata->length = 0;
+    $qdata->penalty = 0;
+    $qdata->generalfeedback = '';
+    $qdata->generalfeedbackformat = FORMAT_HTML;
+    $qdata->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+    $qdata->timecreated = time();
+    $qdata->timemodified = time();
+    $qdata->createdby = $USER->id;
+    $qdata->modifiedby = $USER->id;
+    $qdata->stamp = make_unique_id_code();
+    $qdata->idnumber = null;
+    $qdata->contextid = 0;
+    $qdata->hints = [];
+    $qdata->options = new stdClass();
+    $qdata->options->answers = [];
+
+    // Create a record for the question.
+    $qdata->id = $DB->insert_record('question', $qdata);
+
+    // Create a record for the question bank entry.
+    $questionbankentry = new stdClass();
+    $questionbankentry->questioncategoryid = $category->id;
+    $questionbankentry->idnumber = $qdata->idnumber;
+    $questionbankentry->ownerid = $qdata->createdby;
+    $questionbankentry->id = $DB->insert_record('question_bank_entries', $questionbankentry);
+
+    // Create a record for the question versions.
+    $questionversion = new stdClass();
+    $questionversion->questionbankentryid = $questionbankentry->id;
+    $questionversion->questionid = $qdata->id;
+    $questionversion->version = get_next_version($questionbankentry->id);
+    $questionversion->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+    $questionversion->id = $DB->insert_record('question_versions', $questionversion);
+
+    // Log the creation of this question.
+    $context = \context::instance_by_id($category->contextid, IGNORE_MISSING);
+    $event = \core\event\question_created::create_from_question_instance($qdata, $context);
+    $event->trigger();
+
+    // Commit the transaction.
+    $transaction->allow_commit();
+}

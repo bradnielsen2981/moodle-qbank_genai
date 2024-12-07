@@ -113,8 +113,9 @@ class generation_task extends \core\task\adhoc_task {
             mtrace("Thread created: $threadid");
 
             // Add a Message to a Thread.
-            $message = 'Create 10 multiple choice questions for the provided file. ';
+            $message = 'Create 10 multiple choice questions on the content of the provided file. ';
             $message .= 'Each question shall have 4 answers and only 1 correct answer. ';
+            $message .= 'Questions should be in the same language as the file content. ';
             $message .= 'The output shall be in JSON format, i.e., an array of objects where each object contains the stem, ';
             $message .= 'an array for the answers and the index of the correct answer. Name the keys "stem", "answers", ';
             $message .= '"correctAnswerIndex". The output shall only contain the JSON, nothing else.';
@@ -151,30 +152,35 @@ class generation_task extends \core\task\adhoc_task {
 
             // Create question bank category and questions.
             $response = $client->threads()->messages()->list($threadid, ['limit' => 1]);
-            $questiondata = json_decode(trim($response->data[0]->content[0]->text->value, '`json'));
+            $value = $response->data[0]->content[0]->text->value;
+            $questiondata = json_decode(trim($value, '`json'));
 
             mtrace(var_export($response->data));
 
-            $i = 0;
+            if (is_array($questiondata)) {
+                $i = 0;
 
-            foreach ($questiondata as $data) {
-                mtrace(var_export($data));
+                foreach ($questiondata as $data) {
+                    mtrace(var_export($data));
 
-                $question = new \stdClass();
-                $question->stem = $data->stem;
-                $question->answers = [];
+                    $question = new \stdClass();
+                    $question->stem = $data->stem;
+                    $question->answers = [];
 
-                foreach ($data->answers as $answer) {
-                    $question->answers[] = (object) ["text" => $answer, "weight" => 0.0];
+                    foreach ($data->answers as $answer) {
+                        $question->answers[] = (object) ["text" => $answer, "weight" => 0.0];
+                    }
+
+                    $question->answers[$data->correctAnswerIndex]->weight = 1.0;
+
+                    $questionname = str_pad(strval(++$i), 3, "0", STR_PAD_LEFT);
+
+                    qbank_genai_create_question($questionname, $question, $category);
+
+                    mtrace("Question created: $questionname");
                 }
-
-                $question->answers[$data->correctAnswerIndex]->weight = 1.0;
-
-                $questionname = str_pad(strval(++$i), 3, "0", STR_PAD_LEFT);
-
-                qbank_genai_create_question($questionname, $question, $category);
-
-                mtrace("Question created: $questionname");
+            } else {
+                qbank_genai_add_description("Issue during question generation", $value, $category);
             }
 
             // Delete vector store.
